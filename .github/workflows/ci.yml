@@ -28,7 +28,7 @@ jobs:
         id: ultimatag
         uses: "WyriHaximus/github-action-get-previous-tag@v1"
         with:
-          fallback: 1.0.0 # Fallback se não houver tags
+          fallback: 1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Gerar próximos números de versão semântica
@@ -63,8 +63,6 @@ jobs:
     steps:
       - name: Baixando o repositório
         uses: actions/checkout@v4
-        # O path: build não é estritamente necessário se você ajustar os caminhos nos scripts
-        # mas vou manter como no seu ci.yml original para consistência.
         with:
           path: build 
       - name: Configurar Node.js
@@ -89,8 +87,8 @@ jobs:
           path: build/ci_cd_projeto/backend/backend.zip
 
   teste_back:
-    name: Testes Automatizados Backend
-    needs: [build_back] # Depende do build do backend
+    name: Testes
+    needs: [build_back]
     runs-on: ubuntu-latest
     steps:
       - name: Baixando o repositório
@@ -145,10 +143,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v5 # Verifique a versão mais recente
+        uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          # SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }} 
 
   empacotar_e_release:
     name: Empacotar e Criar Release
@@ -159,7 +156,6 @@ jobs:
        uses: actions/download-artifact@v4
        with:
          name: frontend-artifact 
-         # path: local_path_to_download_to # Opcional, por padrão baixa para o workspace
      - name: Download Artefato Backend
        uses: actions/download-artifact@v4
        with:
