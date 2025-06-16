@@ -1,18 +1,18 @@
-name: CI - Snapshot
-run-name: CI snapshot disparada por ${{ github.actor }}
+name: CI - Pipeline Completa 
+run-name: CI build (${{ inputs.tipo_versao }}) disparada por ${{ github.actor }}
 
 on:
   workflow_dispatch:
     inputs:
       tipo_versao:
         type: choice
-        description: 'Tipo de build'     
+        description: 'Tipo de build (major, minor, patch)'
         required: true
-        default: 'minor'
+        default: 'minor' # Default do seu arquivo original
         options:
-        - patch
-        - minor
-        - major
+          - patch
+          - minor
+          - major
 
 jobs:
   GerarVersao:
@@ -28,133 +28,153 @@ jobs:
         id: ultimatag
         uses: "WyriHaximus/github-action-get-previous-tag@v1"
         with:
-          fallback: 1.0.0
+          fallback: 1.0.0 # Fallback se não houver tags
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Número próximas versões
+      - name: Gerar próximos números de versão semântica
         id: versoes
         uses: "WyriHaximus/github-action-next-semvers@v1"
         with:
           version: ${{ steps.ultimatag.outputs.tag }}
-      - name: Versão
+      - name: Definir versão para este build
         id: versao
         shell: sh
         run: |
-          versao=$(
-            case "${{ inputs.tipo_versao }}" in
-              ("patch") echo "${{ steps.versoes.outputs.patch }}" ;;
-              ("minor") echo "${{ steps.versoes.outputs.minor }}" ;;
-              ("major") echo "${{ steps.versoes.outputs.major }}" ;;
-              ("replace_last") echo "${{ steps.ultimatag.outputs.tag }}" ;;
-              ("snapshot") echo "${{ steps.versoes.outputs.minor }}.${{ github.ref_name }}.snapshot" ;;
-              (*) echo "${{ steps.versoes.outputs.minor }}.snapshot" ;;
-            esac)
-          echo "--- Versões ---"
-          echo "snapshot=${{ steps.versoes.outputs.minor }}.snapshot"
-          echo "patch=${{ steps.versoes.outputs.patch }}"
-          echo "minor=${{ steps.versoes.outputs.minor }}"
-          echo "major=${{ steps.versoes.outputs.major }}"
-          echo "replace_last=${{ steps.ultimatag.outputs.tag }}"
-          echo "--- Versão escolhida ---"
-          echo "versao=${versao}"
+          versao=""
+          case "${{ inputs.tipo_versao }}" in
+            ("patch") versao="${{ steps.versoes.outputs.patch }}" ;;
+            ("minor") versao="${{ steps.versoes.outputs.minor }}" ;;
+            ("major") versao="${{ steps.versoes.outputs.major }}" ;;
+            (*) echo "Tipo de versão inválido: ${{ inputs.tipo_versao }}"; exit 1 ;;
+          esac
+          echo "--- Detalhes da Versão ---"
+          echo "Última Tag: ${{ steps.ultimatag.outputs.tag }}"
+          echo "Próximo Patch: ${{ steps.versoes.outputs.patch }}"
+          echo "Próximo Minor: ${{ steps.versoes.outputs.minor }}"
+          echo "Próximo Major: ${{ steps.versoes.outputs.major }}"
+          echo "--- Versão Escolhida ---"
+          echo "Versão para este build: ${versao}"
           echo "versao=${versao}" >> "$GITHUB_OUTPUT"
 
   build_back:
-    name: Build Back
+    name: Build Backend
     needs: [GerarVersao]
     runs-on: ubuntu-latest
     steps:
       - name: Baixando o repositório
         uses: actions/checkout@v4
+        # O path: build não é estritamente necessário se você ajustar os caminhos nos scripts
+        # mas vou manter como no seu ci.yml original para consistência.
         with:
-          repository: ${{ github.repository }}
-          path: build
-      - name: Compila o(s) projeto(s)
+          path: build 
+      - name: Configurar Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18' 
+      - name: Instalar dependências e Buildar Backend
         shell: bash
         run: |
           cd build/ci_cd_projeto/backend
           npm install
           npm run build
-      - name: Compacta(Zip) buid
+      - name: Compactar build do Backend
         shell: bash
         run: |
           cd build/ci_cd_projeto/backend
           zip -r backend.zip dist
-      - name: Upload Zip Backend
+      - name: Upload Artefato Backend
         uses: actions/upload-artifact@v4
         with:
-          name: backend
+          name: backend-artifact
           path: build/ci_cd_projeto/backend/backend.zip
-  
+
   teste_back:
-    name: Teste
-    needs: [build_back]
+    name: Testes Automatizados Backend
+    needs: [build_back] # Depende do build do backend
     runs-on: ubuntu-latest
     steps:
       - name: Baixando o repositório
         uses: actions/checkout@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v3
         with:
-          repository: ${{ github.repository }}
-          path: build
-      - name: Executar os testes automatizados
+          node-version: '18' 
+      - name: Executar testes automatizados (Backend)
         shell: bash
         run: |
-          cd build/ci_cd_projeto/backend
+          cd ci_cd_projeto/backend 
           npm install
           npm run test:cov
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v5
-        with:
-          projectBaseDir: build
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   build_front:
-    name: Build Front
+    name: Build Frontend
     needs: [GerarVersao]
     runs-on: ubuntu-latest
     steps:
       - name: Baixando o repositório
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository }}
           path: build
-      - name: Compila o(s) projeto(s)
+      - name: Configurar Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18' 
+      - name: Instalar dependências e Buildar Frontend
         shell: bash
         run: |
           cd build/ci_cd_projeto/frontend
           npm install
           npm run build
-      - name: Compacta(Zip) buid
+      - name: Compactar build do Frontend
         shell: bash
         run: |
           cd build/ci_cd_projeto/frontend
           zip -r frontend.zip dist
-      - name: Upload Zip Frontend
+      - name: Upload Artefato Frontend
         uses: actions/upload-artifact@v4
         with:
-          name: frontend
+          name: frontend-artifact
           path: build/ci_cd_projeto/frontend/frontend.zip
-
-  empacotar:
-    name: Empacotar
-    needs: [teste_back, build_front, GerarVersao]
+  
+  sonarqube:
+    name: SonarQube Scan
+    needs: [teste_back, build_front] 
     runs-on: ubuntu-latest
     steps:
-     - name: Download Zip Frontend
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5 # Verifique a versão mais recente
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }} 
+
+  empacotar_e_release:
+    name: Empacotar e Criar Release
+    needs: [GerarVersao, sonarqube] 
+    runs-on: ubuntu-latest
+    steps:
+     - name: Download Artefato Frontend
        uses: actions/download-artifact@v4
        with:
-         name: frontend
-     - name: Download Zip Backend
+         name: frontend-artifact 
+         # path: local_path_to_download_to # Opcional, por padrão baixa para o workspace
+     - name: Download Artefato Backend
        uses: actions/download-artifact@v4
        with:
-         name: backend
-     - name: Criar Versão / Release e Tag
+         name: backend-artifact 
+     - name: Listar arquivos para verificar downloads
+       run: ls -la
+     - name: Criar Release no GitHub
        uses: softprops/action-gh-release@v2
        env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
        with:
          body: Release ${{ needs.GerarVersao.outputs.versao }}
          tag_name: ${{ needs.GerarVersao.outputs.versao }}
+         
+         files: |
+           backend.zip
+           frontend.zip
          fail_on_unmatched_files: true
-         files: backend.zip, frontend.zip
